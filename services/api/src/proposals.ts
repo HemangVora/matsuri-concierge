@@ -11,6 +11,7 @@ import { bus } from './events.ts';
 export interface Deps {
   mb: Pick<Mb, 'readStalls' | 'composeBuy' | 'composeTransfer'>; screen: Screener; store: Store;
   policy: PolicyConfig; chainId: number; agentAddress: string; approverAddress: string; publicBaseUrl: string;
+  approvalBaseUrl: string;
   signer: { sign(id: string): Promise<{ txHashes: string[] }> };
 }
 export interface ProposalView {
@@ -23,7 +24,7 @@ function view(d: Deps, id: string): ProposalView {
   const dec = p.decision as { approvalReasons?: string[] };
   return { proposalId: p.id, kind: p.kind, status: p.status, totalYen: p.totalYen, requiresApproval: p.requiresApproval,
     approvalReasons: dec.approvalReasons ?? [], hash: p.hash, decision: p.decision,
-    approvalUrl: p.status === 'awaiting_approval' ? `${d.publicBaseUrl.replace(':8787', ':5180')}/approve/${p.id}` : null };
+    approvalUrl: p.status === 'awaiting_approval' ? `${d.approvalBaseUrl}/approve/${p.id}` : null };
 }
 
 export async function proposeOrder(d: Deps, lines: OrderLine[]): Promise<ProposalView> {
@@ -75,6 +76,7 @@ export async function execute(d: Deps, id: string) {
   const p = d.store.getProposal(id);
   if (!p) return { status: 'failed' as ProposalStatus, reason: 'Unknown proposal' };
   if (p.status === 'refused' || p.status === 'held' || p.status === 'executed') return { status: p.status };
+  if (p.status === 'failed') return { status: 'failed' as ProposalStatus, reason: 'Proposal failed; propose a new one' };
   if (p.requiresApproval && !p.approval) return { status: 'awaiting_approval' as ProposalStatus };
   try {
     const { txHashes } = await d.signer.sign(id);

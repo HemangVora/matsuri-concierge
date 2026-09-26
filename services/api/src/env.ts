@@ -15,6 +15,7 @@ export const env = {
   approverAddress: need('APPROVER_ADDRESS'),
   signerUrl: process.env.SIGNER_URL ?? 'http://127.0.0.1:8788',
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? 'http://localhost:8787',
+  approvalBaseUrl: process.env.APPROVAL_BASE_URL ?? 'http://localhost:5180',
   anthropicModel: process.env.AGENT_MODEL ?? 'claude-opus-5',
   agentEffort: (process.env.AGENT_EFFORT ?? 'medium') as 'low' | 'medium' | 'high',
 };

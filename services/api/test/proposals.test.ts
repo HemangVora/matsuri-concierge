@@ -24,7 +24,7 @@ function deps(signed: string[] = []) {
                                      : { toxicScore: 2, traits: [] } }),
     store: openStore(':memory:'), policy, chainId: 11155111,
     agentAddress: '0x00000000000000000000000000000000000000ee', approverAddress: human.address,
-    publicBaseUrl: 'http://x',
+    publicBaseUrl: 'http://x', approvalBaseUrl: 'http://web',
     signer: { sign: async (id: string) => { signed.push(id); return { txHashes: ['0xhash'] }; } },
   };
 }
@@ -49,6 +49,7 @@ test('big order waits for a valid human approval bound to its hash', async () =>
   const d = deps();
   const v = await proposeOrder(d, [{ itemId: 1, quantity: 2 }]);
   assert.equal(v.status, 'awaiting_approval');
+  assert.equal(v.approvalUrl, `http://web/approve/${v.proposalId}`);
   assert.equal((await execute(d, v.proposalId)).status, 'awaiting_approval');
   const expiresAt = Math.floor(Date.now() / 1000) + 600;
   const bad = await human.signTypedData(approvalDomain(11155111), APPROVAL_TYPES, { proposalHash: '0x' + '00'.repeat(32), totalYen: 1200, expiresAt });
@@ -69,4 +70,16 @@ test('transfer to a flagged friend agent is held', async () => {
   const d = deps();
   const v = await proposeTransfer(d, { to: stalls[1].payTo, amountYen: 700, memo: 'Ken drinks' });
   assert.equal(v.status, 'held');
+});
+
+test('a failed execute is terminal; the signer is never retried', async () => {
+  const d = deps();
+  let calls = 0;
+  d.signer = { sign: async () => { calls++; if (calls === 1) throw new Error('signer offline'); return { txHashes: ['0xretry'] }; } };
+  const v = await proposeOrder(d, [{ itemId: 1, quantity: 1 }]);
+  const first = await execute(d, v.proposalId);
+  assert.equal(first.status, 'failed');
+  const second = await execute(d, v.proposalId);
+  assert.equal(second.status, 'failed');
+  assert.equal(calls, 1);
 });
