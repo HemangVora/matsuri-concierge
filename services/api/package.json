@@ -1,0 +1,17 @@
+{
+  "name": "@mc/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=.env --import tsx --watch src/server.ts",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "@curvegrid/multibaas-sdk": "1.1.1",
+    "@hono/node-server": "^1.14.0",
+    "@mc/core": "*",
+    "ethers": "6.17.0",
+    "hono": "^4.9.0"
+  }
+}
