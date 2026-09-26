@@ -22,6 +22,19 @@ test('spentTodayYen counts only executed orders and transfers', () => {
   assert.equal(s.spentTodayYen(), 600);
 });
 
+test('spentTodayYen anchors to the JST calendar day, not the process TZ', () => {
+  const s = openStore(':memory:');
+  // 05:00 JST on 26 Sep — must count as "today" when `now` is 09:30 JST on 26 Sep, even on a
+  // TZ=UTC host where naive local-midnight math would wrongly treat it as still "yesterday".
+  s.insertProposal({ id: 'jst-early', ...base, totalYen: 500, createdAt: '2026-09-25T20:00:00.000Z' });
+  s.setStatus('jst-early', 'executed');
+  // 23:59:59 JST on 25 Sep — must NOT count as "today" for that same `now`.
+  s.insertProposal({ id: 'jst-late-prev-day', ...base, totalYen: 700, createdAt: '2026-09-25T14:59:59.000Z' });
+  s.setStatus('jst-late-prev-day', 'executed');
+  const now = new Date('2026-09-26T00:30:00.000Z'); // 09:30 JST on 26 Sep
+  assert.equal(s.spentTodayYen(now), 500);
+});
+
 test('screening cache respects max age and share dedupe works once', () => {
   const s = openStore(':memory:');
   s.cacheScreening({ address: '0xAbC', ok: true, result: { toxicScore: 1, traits: [] }, fetchedAt: new Date().toISOString() });

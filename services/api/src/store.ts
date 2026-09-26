@@ -25,10 +25,11 @@ export function openStore(path: string) {
     createdAt: r.created_at,
   });
   return {
-    insertProposal(p: Omit<ProposalRow, 'createdAt' | 'txHashes' | 'approval'>): ProposalRow {
+    insertProposal(p: Omit<ProposalRow, 'createdAt' | 'txHashes' | 'approval'> & { createdAt?: string }): ProposalRow {
+      // createdAt is optional and test-only: production callers omit it and get the real insert time.
       db.prepare(`INSERT INTO proposals VALUES (?,?,?,?,?,?,?,?,NULL,'[]',?,?)`).run(
         p.id, p.kind, p.status, p.hash, p.totalYen, p.requiresApproval ? 1 : 0,
-        JSON.stringify(p.decision), JSON.stringify(p.txs), JSON.stringify(p.meta), new Date().toISOString());
+        JSON.stringify(p.decision), JSON.stringify(p.txs), JSON.stringify(p.meta), p.createdAt ?? new Date().toISOString());
       return this.getProposal(p.id)!;
     },
     getProposal(id: string): ProposalRow | null {
@@ -43,7 +44,13 @@ export function openStore(path: string) {
       else db.prepare('UPDATE proposals SET status = ? WHERE id = ?').run(status, id);
     },
     spentTodayYen(now = new Date()): number {
-      const start = new Date(now); start.setHours(0, 0, 0, 0);
+      // Budget day is anchored to a fixed Asia/Tokyo (+09:00, no DST) calendar day, independent of the
+      // host process's TZ. Shift `now` by +9h, floor to a UTC-midnight in that shifted frame (which is
+      // JST midnight), then shift back by -9h to get the UTC instant where the JST day actually starts.
+      const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+      const shifted = new Date(now.getTime() + JST_OFFSET_MS);
+      const jstMidnightInShiftedFrame = Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate(), 0, 0, 0, 0);
+      const start = new Date(jstMidnightInShiftedFrame - JST_OFFSET_MS);
       const r = db.prepare(`SELECT COALESCE(SUM(total_yen),0) AS s FROM proposals
         WHERE status = 'executed' AND kind IN ('order','transfer') AND created_at >= ?`).get(start.toISOString()) as { s: number };
       return r.s;
