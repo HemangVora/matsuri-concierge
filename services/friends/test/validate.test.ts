@@ -9,6 +9,7 @@ const deployments: Deployments = {
   voucher: '0xa94124E8149b7e09ec4AE0345C5ccD1e7eAd4aE2',
   settlement: '0x1804fd65F65AC75954724f6aB1385B97346B5a0E',
 };
+const organizer = '0x00000000000000000000000000000000000000ee';
 
 function accept(overrides: Record<string, unknown> = {}) {
   return {
@@ -16,7 +17,7 @@ function accept(overrides: Record<string, unknown> = {}) {
     chainId: deployments.chainId,
     settlement: deployments.settlement,
     token: deployments.stablecoin,
-    to: '0x00000000000000000000000000000000000000ee',
+    to: organizer,
     amount: '1100000000000000000000',
     amountYen: 1100,
     billId: '0xbill',
@@ -47,7 +48,7 @@ test('validatePayUrl: rejects malformed or missing input', () => {
 // --- validateAccepts ---
 
 test('validateAccepts: accepts a well-formed, matching 402 body', () => {
-  const r = validateAccepts({ accepts: [accept()] }, deployments);
+  const r = validateAccepts({ accepts: [accept()] }, deployments, organizer);
   assert.equal(r.ok, true);
 });
 
@@ -55,70 +56,88 @@ test('validateAccepts: settlement/token match is case-insensitive', () => {
   const r = validateAccepts(
     { accepts: [accept({ settlement: deployments.settlement.toLowerCase(), token: deployments.stablecoin.toUpperCase() })] },
     deployments,
+    organizer,
   );
   assert.equal(r.ok, true);
 });
 
 test('validateAccepts: rejects a missing accepts[0]', () => {
-  const r = validateAccepts({ accepts: [] }, deployments);
+  const r = validateAccepts({ accepts: [] }, deployments, organizer);
   assert.equal(r.ok, false);
   if (!r.ok) assert.match(r.reason, /missing accepts\[0\]/);
 });
 
 test('validateAccepts: rejects a missing accepts array entirely', () => {
-  const r = validateAccepts({}, deployments);
+  const r = validateAccepts({}, deployments, organizer);
   assert.equal(r.ok, false);
 });
 
 test('validateAccepts: rejects an unsupported scheme', () => {
-  const r = validateAccepts({ accepts: [accept({ scheme: 'eip712-voucher' })] }, deployments);
+  const r = validateAccepts({ accepts: [accept({ scheme: 'eip712-voucher' })] }, deployments, organizer);
   assert.equal(r.ok, false);
   if (!r.ok) assert.match(r.reason, /unsupported scheme/);
 });
 
 test('validateAccepts: rejects a mismatched chainId', () => {
-  const r = validateAccepts({ accepts: [accept({ chainId: 1 })] }, deployments);
+  const r = validateAccepts({ accepts: [accept({ chainId: 1 })] }, deployments, organizer);
   assert.equal(r.ok, false);
   if (!r.ok) assert.match(r.reason, /chainId/);
 });
 
 test('validateAccepts: rejects a mismatched settlement contract', () => {
-  const r = validateAccepts({ accepts: [accept({ settlement: '0x000000000000000000000000000000deadbeef' })] }, deployments);
+  const r = validateAccepts({ accepts: [accept({ settlement: '0x000000000000000000000000000000deadbeef' })] }, deployments, organizer);
   assert.equal(r.ok, false);
   if (!r.ok) assert.match(r.reason, /settlement/);
 });
 
 test('validateAccepts: rejects a mismatched token', () => {
-  const r = validateAccepts({ accepts: [accept({ token: '0x000000000000000000000000000000deadbeef' })] }, deployments);
+  const r = validateAccepts({ accepts: [accept({ token: '0x000000000000000000000000000000deadbeef' })] }, deployments, organizer);
   assert.equal(r.ok, false);
   if (!r.ok) assert.match(r.reason, /token/);
 });
 
 test('validateAccepts: rejects amountYen over the friend agent limit', () => {
-  const r = validateAccepts({ accepts: [accept({ amountYen: 3001 })] }, deployments);
+  const r = validateAccepts({ accepts: [accept({ amountYen: 3001 })] }, deployments, organizer);
   assert.equal(r.ok, false);
   if (!r.ok) assert.match(r.reason, /friend agent limit/);
 });
 
 test('validateAccepts: accepts amountYen exactly at the limit', () => {
-  const r = validateAccepts({ accepts: [accept({ amountYen: 3000 })] }, deployments);
+  const r = validateAccepts({ accepts: [accept({ amountYen: 3000 })] }, deployments, organizer);
   assert.equal(r.ok, true);
 });
 
 test('validateAccepts: rejects a non-integer amountYen', () => {
-  const r = validateAccepts({ accepts: [accept({ amountYen: 1100.5 })] }, deployments);
+  const r = validateAccepts({ accepts: [accept({ amountYen: 1100.5 })] }, deployments, organizer);
   assert.equal(r.ok, false);
   if (!r.ok) assert.match(r.reason, /friend agent limit/);
 });
 
 test('validateAccepts: rejects a zero or negative amountYen', () => {
-  assert.equal(validateAccepts({ accepts: [accept({ amountYen: 0 })] }, deployments).ok, false);
-  assert.equal(validateAccepts({ accepts: [accept({ amountYen: -5 })] }, deployments).ok, false);
+  assert.equal(validateAccepts({ accepts: [accept({ amountYen: 0 })] }, deployments, organizer).ok, false);
+  assert.equal(validateAccepts({ accepts: [accept({ amountYen: -5 })] }, deployments, organizer).ok, false);
 });
 
 test('validateAccepts: rejects missing required string/number fields', () => {
-  assert.equal(validateAccepts({ accepts: [accept({ to: undefined })] }, deployments).ok, false);
-  assert.equal(validateAccepts({ accepts: [accept({ amount: undefined })] }, deployments).ok, false);
-  assert.equal(validateAccepts({ accepts: [accept({ billId: undefined })] }, deployments).ok, false);
-  assert.equal(validateAccepts({ accepts: [accept({ deadline: 'soon' })] }, deployments).ok, false);
+  assert.equal(validateAccepts({ accepts: [accept({ to: undefined })] }, deployments, organizer).ok, false);
+  assert.equal(validateAccepts({ accepts: [accept({ amount: undefined })] }, deployments, organizer).ok, false);
+  assert.equal(validateAccepts({ accepts: [accept({ billId: undefined })] }, deployments, organizer).ok, false);
+  assert.equal(validateAccepts({ accepts: [accept({ deadline: 'soon' })] }, deployments, organizer).ok, false);
+});
+
+// --- to (organizer) pinning — the critical fix from review round 1 ---
+
+test('validateAccepts: rejects a to that differs from the organizer address (spoofed recipient)', () => {
+  const r = validateAccepts(
+    { accepts: [accept({ to: '0x000000000000000000000000000000badc0de1' })] },
+    deployments,
+    organizer,
+  );
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.match(r.reason, /organizer/);
+});
+
+test('validateAccepts: to match against the organizer is case-insensitive', () => {
+  const r = validateAccepts({ accepts: [accept({ to: organizer.toUpperCase() })] }, deployments, organizer);
+  assert.equal(r.ok, true);
 });

@@ -44,11 +44,14 @@ export function validatePayUrl(payUrl: unknown, allowedOrigins: readonly string[
 
 /**
  * Validates the shape and terms of a 402 body's `accepts[0]` against the deployment this friend
- * agent expects to pay into, and against the friend's own spending limit. Anything that fails here
- * means the agent refuses to sign, full stop — it never trusts fields off an HTTP response to decide
- * what its wallet commits to.
+ * agent expects to pay into, the organizer address it will ever pay, and the friend's own spending
+ * limit. Anything that fails here means the agent refuses to sign, full stop — it never trusts
+ * fields off an HTTP response to decide what its wallet commits to.
+ *
+ * `organizer` pins the recipient: without it, a spoofed 402 body could carry any `to` address and
+ * the friend would happily sign a Share paying up to ¥3000 to an arbitrary address.
  */
-export function validateAccepts(body: unknown, deployments: Deployments): ValidationResult {
+export function validateAccepts(body: unknown, deployments: Deployments, organizer: string): ValidationResult {
   const accepts = (body as PaymentRequiredBody | null)?.accepts;
   const accept = Array.isArray(accepts) ? (accepts[0] as Partial<Accept> | undefined) : undefined;
   if (!accept || typeof accept !== 'object') return { ok: false, reason: 'missing accepts[0]' };
@@ -67,6 +70,7 @@ export function validateAccepts(body: unknown, deployments: Deployments): Valida
     return { ok: false, reason: `friend agent limit: amountYen ${String(accept.amountYen)} is not an integer in (0, 3000]` };
   }
   if (typeof accept.to !== 'string' || accept.to.length === 0) return { ok: false, reason: 'missing accepts[0].to' };
+  if (!sameAddress(accept.to, organizer)) return { ok: false, reason: 'accepts[0].to does not match the organizer address' };
   if (typeof accept.amount !== 'string' || accept.amount.length === 0) return { ok: false, reason: 'missing accepts[0].amount' };
   if (typeof accept.billId !== 'string' || accept.billId.length === 0) return { ok: false, reason: 'missing accepts[0].billId' };
   if (typeof accept.deadline !== 'number' || !Number.isInteger(accept.deadline)) {
