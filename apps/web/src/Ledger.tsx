@@ -18,8 +18,8 @@ export default function Ledger({ events }: { events: FeedEvent[] }) {
     <section className="panel ledger">
       <h2>Ledger (MultiBaas event queries) · spent today ¥{l.spentTodayYen}</h2>
       <table><tbody>
-        {l.purchases.map((p: any) => <tr key={p.txHash}><td>🧾</td><td>item {p.itemId} ×{p.quantity}</td><td>¥{p.amountYen}</td><td>{p.stall.slice(0, 8)}…</td></tr>)}
-        {l.settlements.map((s: any) => <tr key={s.txHash}><td>🤝</td><td>{s.from.slice(0, 8)}… → you</td><td>¥{s.amountYen}</td><td>{s.billId.slice(0, 8)}…</td></tr>)}
+        {l.purchases.map((p: any) => <tr key={p.txHash}><td>🧾</td><td>item {p.itemId} ×{p.quantity}</td><td>¥{p.amountYen}</td><td>{p.stall ? `${p.stall.slice(0, 8)}…` : '—'}</td></tr>)}
+        {l.settlements.map((s: any) => <tr key={s.txHash}><td>🤝</td><td>{s.from ? `${s.from.slice(0, 8)}…` : '—'} → you</td><td>¥{s.amountYen}</td><td>{s.billId ? `${s.billId.slice(0, 8)}…` : '—'}</td></tr>)}
       </tbody></table>
     </section>
   );
