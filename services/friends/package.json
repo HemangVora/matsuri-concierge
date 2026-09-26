@@ -1,0 +1,11 @@
+{
+  "name": "@mc/friends",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=.env --import tsx src/server.ts",
+    "setup:approve": "node --env-file=.env --import tsx src/setupApprove.ts",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": { "@hono/node-server": "^1.14.0", "@mc/core": "*", "ethers": "6.17.0", "hono": "^4.9.0" }
+}
