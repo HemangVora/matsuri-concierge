@@ -242,3 +242,10 @@ test('settle refuses a share signed by someone other than the claimed payer', as
   const r = await verifyForSigning(settle(tx), ctx);
   assert.equal(r.ok, false);
 });
+
+test('an unknown proposal kind is refused explicitly, never falls through into the settle branch', async () => {
+  const tx = await settleTx();
+  const r = await verifyForSigning({ id: 'x', kind: 'bogus' as any, chainId: 11155111, txs: [tx], approval: null }, ctx);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.match(r.reason, /Unknown proposal kind/);
+});

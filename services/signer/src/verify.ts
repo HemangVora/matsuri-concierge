@@ -133,6 +133,8 @@ async function run(p: ProposalForSigner, ctx: VerifyCtx): Promise<Result> {
     return d.requiresApproval ? checkApproval(p, ctx, amountYen) : { ok: true, spendYen: amountYen };
   }
 
+  if (p.kind !== 'settle') return fail('Unknown proposal kind');
+
   // settle: money flows IN to the agent; the signer only pays gas, but still screens the payer.
   if (p.txs.length !== 1) return fail('Settle must be a single transaction');
   const [t] = p.txs;
