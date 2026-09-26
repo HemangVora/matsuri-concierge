@@ -51,6 +51,23 @@ export function validateInput(name: string, input: unknown): { ok: true } | { ok
   return err ? { ok: false, reason: err } : { ok: true };
 }
 
+// Whether a tool's output should be reported to Claude as a tool_result error (is_error: true).
+// An `error` key always means the call itself failed. Beyond that, only execute_order's terminal
+// non-success statuses ('failed' | 'refused' | 'held') are errors — those are the signer/policy
+// refusing to move money on a call the model explicitly asked to execute, and the model must not
+// mistake that for a success. propose_order (and other tools) can legitimately report a 'refused'
+// or 'held' status as a normal, informative answer — e.g. a fully-refused order is exactly what the
+// model should explain to the user, not something to treat as a broken tool call.
+export function isToolError(name: string, output: unknown): boolean {
+  if (typeof output !== 'object' || output === null) return false;
+  if ('error' in output) return true;
+  if (name === 'execute_order' && 'status' in output) {
+    const status = (output as { status?: unknown }).status;
+    return status === 'failed' || status === 'refused' || status === 'held';
+  }
+  return false;
+}
+
 export async function runTool(name: string, input: unknown, d: KanjoDeps & { mbFull: Mb; interceptaKey: string }) {
   const v = validateInput(name, input);
   if (!v.ok) return { error: v.reason };

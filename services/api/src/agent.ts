@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { TOOLS, runTool } from './tools.ts';
+import { TOOLS, runTool, isToolError } from './tools.ts';
 import { bus } from './events.ts';
 
 const client = new Anthropic();
@@ -44,7 +44,7 @@ export async function chat(sessionId: string, text: string, deps: Parameters<typ
       catch (e) { output = { error: (e as Error).message }; }
       toolCalls.push({ name: u.name, input: u.input, output });
       results.push({ type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(output),
-        is_error: typeof output === 'object' && output !== null && 'error' in output });
+        is_error: isToolError(u.name, output) });
     }
     messages.push({ role: 'user', content: results });
   }

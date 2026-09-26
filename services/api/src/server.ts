@@ -14,6 +14,7 @@ import { acceptPayment, paymentRequired } from './kanjo.ts';
 import { ledger } from './ledger.ts';
 import { chat } from './agent.ts';
 import { bus } from './events.ts';
+import { validateChatBody } from './validateChat.ts';
 
 const policy = JSON.parse(readFileSync(new URL('../../../config/policy.json', import.meta.url), 'utf8')) as PolicyConfig;
 const store = openStore(new URL('../data.sqlite', import.meta.url).pathname);
@@ -40,8 +41,10 @@ function isLoopback(c: Parameters<typeof getConnInfo>[0]): boolean {
 
 const app = new Hono();
 app.post('/api/chat', async (c) => {
-  const { sessionId, text } = await c.req.json<{ sessionId: string; text: string }>();
-  return c.json(await chat(sessionId, text, deps, env.anthropicModel, env.agentEffort));
+  const body = await c.req.json().catch(() => null);
+  const v = validateChatBody(body);
+  if (!v.ok) return c.json({ error: v.error }, 400);
+  return c.json(await chat(v.body.sessionId, v.body.text, deps, env.anthropicModel, env.agentEffort));
 });
 app.get('/api/events', (c) => streamSSE(c, async (stream) => {
   for (const e of bus.recent()) await stream.writeSSE({ id: String(e.id), event: e.type, data: JSON.stringify(e) });
