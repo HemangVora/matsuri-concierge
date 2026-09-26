@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BrowserProvider } from 'ethers';
-import { approve, getProposal } from './api.ts';
+import { ApiError, approve, getProposal } from './api.ts';
 
 export default function Approve({ id }: { id: string }) {
   const [p, setP] = useState<any>(null);
@@ -8,7 +8,7 @@ export default function Approve({ id }: { id: string }) {
   const [msg, setMsg] = useState('');
   useEffect(() => {
     void getProposal(id)
-      .then((r) => (r?.error ? setNotFound(true) : setP(r)))
+      .then(setP)
       .catch(() => setNotFound(true));
   }, [id]);
   if (notFound) return <div className="panel approve-page"><h1>Proposal not found</h1><p>This approval link is invalid or has already been used.</p></div>;
@@ -24,9 +24,12 @@ export default function Approve({ id }: { id: string }) {
       const expiresAt = Math.floor(Date.now() / 1000) + 600;
       const signature = await signer.signTypedData(p.typedData.domain, p.typedData.types, { proposalHash: p.hash, totalYen: p.totalYen, expiresAt });
       const r = await approve(id, { signature, totalYen: p.totalYen, expiresAt });
-      setMsg(r.ok ? `Approved · ${r.execution.status}` : `Rejected: ${r.reason}`);
+      setMsg(`Approved · ${r.execution.status}`);
     } catch (e: any) {
-      setMsg(e?.message ?? 'Signing failed');
+      // An ApiError is a structured rejection from the api (e.g. "totalYen does not match" from a
+      // 400); anything else is a wallet/MetaMask failure (no provider, wrong network, user rejected
+      // the signature request) and gets its own message instead of being mislabeled "Rejected".
+      setMsg(e instanceof ApiError ? `Rejected: ${e.message}` : (e?.message ?? 'Signing failed'));
     }
   }
   return (

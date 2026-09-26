@@ -1,4 +1,17 @@
-// Reads a fetch Response as JSON, throwing a readable Error when the response isn't ok. The api's
+// Thrown by asJson() for any non-ok HTTP response, carrying the status alongside the message so
+// callers can distinguish a structured api rejection (e.g. a proposal-approval 400 with a `reason`)
+// from an unrelated failure (a thrown wallet/MetaMask error, a network error) without inspecting
+// message text.
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+// Reads a fetch Response as JSON, throwing a readable ApiError when the response isn't ok. The api's
 // error bodies use either `{ error }` (e.g. 404s, friends validation) or `{ ok: false, reason }`
 // (e.g. proposal approval rejections) — both are checked so the thrown message stays informative
 // instead of collapsing to a bare status code. A non-JSON error body (e.g. the dev proxy's plain-text
@@ -13,7 +26,7 @@ async function asJson<T>(r: Response): Promise<T> {
     } catch {
       // non-JSON error body; keep the status-text fallback
     }
-    throw new Error(message);
+    throw new ApiError(r.status, message);
   }
   return r.json() as Promise<T>;
 }
