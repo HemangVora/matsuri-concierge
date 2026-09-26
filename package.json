@@ -1,0 +1,20 @@
+{
+  "name": "matsuri-concierge",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/core", "services/api", "services/signer", "services/friends", "apps/web"],
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "test": "npm test --workspaces --if-present",
+    "wallets": "tsx scripts/gen-wallets.ts",
+    "dev:api": "npm run dev -w services/api",
+    "dev:signer": "npm run dev -w services/signer",
+    "dev:friends": "npm run dev -w services/friends",
+    "dev:web": "npm run dev -w apps/web"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "tsx": "^4.20.0",
+    "typescript": "5.9.3"
+  }
+}

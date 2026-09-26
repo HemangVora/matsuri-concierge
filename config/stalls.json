@@ -1,0 +1,7 @@
+[
+  { "itemId": 1, "name": "Takoyaki Hachi", "item": "Takoyaki (8 pcs)", "emoji": "🐙", "priceYen": 600, "available": 200, "payTo": "0x1111111111111111111111111111111111111111", "intent": "clean" },
+  { "itemId": 2, "name": "Yakisoba Ryu",   "item": "Yakisoba",         "emoji": "🍜", "priceYen": 700, "available": 200, "payTo": "0x2222222222222222222222222222222222222222", "intent": "clean" },
+  { "itemId": 3, "name": "Kakigori Yuki",  "item": "Shaved ice",       "emoji": "🍧", "priceYen": 400, "available": 200, "payTo": "0x3333333333333333333333333333333333333333", "intent": "clean" },
+  { "itemId": 4, "name": "Karaage Taro",   "item": "Karaage",          "emoji": "🍗", "priceYen": 500, "available": 200, "payTo": "0x4444444444444444444444444444444444444444", "intent": "medium-risk" },
+  { "itemId": 5, "name": "Kuro Yatai",     "item": "Mystery skewers",  "emoji": "🍢", "priceYen": 300, "available": 200, "payTo": "0x5555555555555555555555555555555555555555", "intent": "flagged" }
+]

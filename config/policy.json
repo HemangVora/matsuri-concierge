@@ -1,0 +1,12 @@
+{
+  "maxPerStallYen": 1500,
+  "approvalThresholdYen": 1000,
+  "dailyBudgetYen": 5000,
+  "risk": {
+    "refuseScore": 70,
+    "askScore": 40,
+    "capScore": 15,
+    "capFraction": 0.5,
+    "hardTraits": ["sanction_address", "known_scammer", "blacklist", "attack_money_target", "fake_phishing_transfer"]
+  }
+}

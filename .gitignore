@@ -9,3 +9,4 @@ contracts/types/
 *.sqlite
 *.sqlite-*
 .DS_Store
+.superpowers/
