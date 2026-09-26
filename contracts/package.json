@@ -9,6 +9,7 @@
     "deploy:sepolia": "hardhat ignition deploy ignition/modules/MatsuriConcierge.ts --network sepolia",
     "deploy:reset:sepolia": "rm -rf ignition/deployments/chain-11155111",
     "fund": "hardhat run scripts/fund.ts --network sepolia",
+    "set-stall": "hardhat run scripts/set-stall.ts --network sepolia",
     "deploy": "hardhat ignition deploy ignition/modules/MatsuriConcierge.ts"
   },
   "devDependencies": {

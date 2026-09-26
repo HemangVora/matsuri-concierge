@@ -19,6 +19,12 @@ const targets = [
   { name: 'aoi', address: process.env.FUND_AOI!, yen: '5000' },
   { name: 'mei', address: process.env.FUND_MEI!, yen: '5000' },
 ];
+// Gas top-up target per wallet. Raised from 0.005 to 0.01 ETH so a wallet that's already sent a few
+// transactions this session doesn't run dry mid-demo. The deployer historically holds ~0.029 ETH on
+// Sepolia, which is enough to top up all three targets from empty exactly once, with no headroom for
+// a second full round — see the insufficient-balance handling below.
+const gasTarget = ethers.parseEther('0.01');
+
 for (const t of targets) {
   if (!t.address) throw new Error(`FUND_${t.name.toUpperCase()} missing`);
   const targetYen = ethers.parseUnits(t.yen, 18);
@@ -30,10 +36,20 @@ for (const t of targets) {
   if (currentYen < targetYen) {
     await (await coin.mint(t.address, targetYen - currentYen)).wait();
   }
-  const gasTarget = ethers.parseEther('0.005');
   const currentEth = await ethers.provider.getBalance(t.address);
   if (currentEth < gasTarget) {
-    await (await owner.sendTransaction({ to: t.address, value: gasTarget - currentEth })).wait();
+    const need = gasTarget - currentEth;
+    const ownerBalance = await ethers.provider.getBalance(owner.address);
+    // Fail closed with a clear, actionable message rather than letting `sendTransaction` throw
+    // mid-loop on insufficient funds: a partial run (e.g. agent + aoi funded, mei not) should be
+    // obvious from the log, not an uncaught exception that leaves the operator guessing which
+    // wallets still need gas before recording.
+    if (ownerBalance <= need) {
+      console.log(`SKIPPED gas top-up for ${t.name} ${t.address}: deployer balance ¥${ethers.formatEther(ownerBalance)} ETH ` +
+        `is not enough to send ${ethers.formatEther(need)} ETH. Fund the deployer wallet and re-run — MJPY balance above is unaffected.`);
+      continue;
+    }
+    await (await owner.sendTransaction({ to: t.address, value: need })).wait();
   }
-  console.log(`funded ${t.name} ${t.address}: ¥${t.yen} MJPY + 0.005 ETH`);
+  console.log(`funded ${t.name} ${t.address}: ¥${t.yen} MJPY + ${ethers.formatEther(gasTarget)} ETH`);
 }
