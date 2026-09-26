@@ -1,0 +1,16 @@
+# Sponsor feedback
+
+## Intercepta
+
+- Time to first call: honestly, still zero at the time of writing — `INTERCEPTA_API_KEY` is blank in both `services/api/.env` and `services/signer/.env` (we're waiting on the key), so every screen so far has gone through the `ok:false` / "a human must decide" fallback path in `packages/core/src/risk.ts`, never a real Quick Scan response. We built and unit-tested `quickScan` (`packages/core/src/intercepta.ts`, `packages/core/test/intercepta.test.ts`) entirely against the documented response shape.
+- The `/api/public/v2/extension/account/:address/quick-scan` request/response shape was easy to integrate purely from the `.md` pages under `docs.web3antivirus.io` — one header (`X-API-KEY`), one path param, a flat JSON body with `toxicScore` and a `traits[]` array. No SDK needed.
+- What was missing from the docs we read: no example testnet or known-bad/known-good fixture addresses to build a demo around — we ended up hand-picking a real mainnet address (`config/stalls.json`'s "Kuro Yatai" stall) and asserting it *should* score as risky, rather than being handed an address the docs guarantee will trip a hard trait.
+- `toxicScore`'s scale is undocumented (we didn't find a stated min/max or a "typical clean address" baseline anywhere), so `config/policy.json`'s thresholds (`refuseScore: 70`, `askScore: 40`, `capScore: 15`) are our own guess at reasonable cut points, not values taken from Intercepta's docs.
+- The `traits[]` taxonomy (e.g. `sanction_address`, `known_scammer`) also isn't enumerated anywhere we found — our `hardTraits` allowlist in `config/policy.json` is a best-effort list assembled from trait names mentioned in passing on the prize page and Discord, not a documented enum.
+
+## MultiBaas (Curvegrid)
+
+- `hardhat-multibaas-plugin`'s Ignition integration (`mb.link(...)` in `contracts/ignition/modules/MatsuriConcierge.ts`) skips linking a contract that was already deployed in a previous, interrupted Ignition run — Ignition sees the contract as already deployed and doesn't re-run the linking step, so it silently never reaches MultiBaas. We had to pass `syncExisting` (re-run the linking against the already-deployed address) to get `mc_stablecoin`/`mc_voucher`/`mc_settlement` actually registered as address aliases after a deploy that had partially failed and was resumed.
+- The sample app's default `SEPOLIA_RPC_URL` (`rpc.sepolia.org`) is dead — every request we sent to it timed out or connection-refused. We switched to `https://ethereum-sepolia-rpc.publicnode.com` everywhere (`.env.example` files, `services/friends/src/setupApprove.ts`) and would flag this default as worth updating in the sample repo.
+- Awaji (Curvegrid's own L2) requires roughly a 30 gwei minimum priority fee to get a transaction accepted; the MIZU faucet gave our deployer wallet only 0.014 MIZU, nowhere near enough to cover that at any reasonable gas usage. We deployed to Sepolia instead and documented this as a limitation rather than quietly deploying somewhere else without saying so.
+- The admin API key needed for `hardhat-multibaas-plugin` (`MB_ADMIN_API_KEY`) lives inside the deployment's own settings, not on `console.curvegrid.com` where we first went looking for it — cost us time to find during setup.
