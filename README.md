@@ -55,7 +55,7 @@ All calls go through one function, `quickScan` in `packages/core/src/intercepta.
 | Payer accepting a Kanjō share | `services/api/src/kanjo.ts:78` | the friend's address before `acceptPayment` settles |
 | Independent re-screen inside the signer | `services/signer/src/server.ts:69`, consumed in `services/signer/src/verify.ts:108,130,149` | stall `payTo` (orders), transfer `to`, and Kanjō payer — re-run with the signer's **own** `INTERCEPTA_API_KEY`, never trusting the api's verdict |
 
-`packages/core/src/risk.ts` (`assessRisk`) maps the response into `PAY`/`CAP`/`ASK`/`REFUSE`: any `hardTraits` match (`sanction_address`, `known_scammer`, `blacklist`, `attack_money_target`, `fake_phishing_transfer`) is a hard `REFUSE`; otherwise `toxicScore` is compared against `refuseScore`/`askScore`/`capScore` in `config/policy.json`. Stall "Kuro Yatai" (`config/stalls.json`, `payTo: 0x5555…5555`) is deliberately flagged so one payment is refused with the reason visible in the UI.
+`packages/core/src/risk.ts` (`assessRisk`) maps the response into `PAY`/`CAP`/`ASK`/`REFUSE`: any `hardTraits` match (`sanction_address`, `known_scammer`, `blacklist`, `attack_money_target`, `fake_phishing_transfer`) is a hard `REFUSE`; otherwise `toxicScore` is compared against `refuseScore`/`askScore`/`capScore` in `config/policy.json`. Stall "Kuro Yatai" (`config/stalls.json`, itemId 5) is the stall **designated** to carry an Intercepta-flagged mainnet address so its payment is refused with the reason visible in the UI — as shipped, its `payTo` is still the same sequential placeholder as the other four stalls (see Honest limitations below). Wiring up the real REFUSE demo requires swapping in one of Intercepta's pinned test addresses via `MatsuriVoucher.setEvent` (it's `onlyOwner`, callable post-deploy, no redeploy needed) and setting `INTERCEPTA_API_KEY` — see the "Before recording" section of [`docs/demo-script.md`](docs/demo-script.md).
 
 ### MultiBaas (Curvegrid)
 - `services/api/src/multibaas.ts` — `createMb()` composes **unsigned** transactions via `contracts.callContractFunction(...)` (`composeBuy`, `composeTransfer`, `composeSettle`); the api never has a key to sign with. It also reads stall state (`eventInfo`) and queries on-chain history through MultiBaas **Event Queries** (`purchases()` reads `VoucherPurchased`, `settlements()` reads `ShareSettled`), which back the `ledger` tool.
@@ -113,7 +113,7 @@ npm run dev:web      # apps/web (vite)   — :5180
 | | `APPROVER_ADDRESS` | no | the human's MetaMask address |
 | | `SIGNER_URL`, `PUBLIC_BASE_URL`, `APPROVAL_BASE_URL` | no | local URLs |
 | | `AGENT_MODEL`, `AGENT_EFFORT` | no | Claude model/effort |
-| | `AOI_ADDRESS`, `MEI_ADDRESS`, `KEN_PAYTO` | no | demo friend addresses; `KEN_PAYTO` is deliberately a flagged address for the demo |
+| | `AOI_ADDRESS`, `MEI_ADDRESS`, `KEN_PAYTO` | no | demo friend addresses; `KEN_PAYTO` is meant to hold an Intercepta-flagged address for the demo — currently blank, see Honest limitations |
 | `services/signer` | `AGENT_PRIVATE_KEY` | **secret — the only spending key in the whole system** | |
 | | `RPC_URL`, `API_URL`, `APPROVER_ADDRESS` | no | |
 | | `INTERCEPTA_API_KEY` | secret | its **own** key, independent of the api's |
@@ -136,9 +136,9 @@ cd contracts && npx hardhat test
 
 - Friends (Aoi, Mei) are simulated agents in `services/friends`, not real third-party wallets.
 - Deployed to Ethereum **Sepolia**, not Awaji: Awaji requires a ~30 gwei minimum priority fee and the MIZU faucet gave us only 0.014 MIZU, not enough to cover it.
-- Intercepta screens real mainnet addresses; EVM addresses are chain-agnostic, so the same address (Kuro Yatai's `payTo`, Ken's `payTo`) is screened and paid on Sepolia to demonstrate the same verdict would apply on any chain — but Intercepta's own data is a mainnet reputation signal, not something that has seen Sepolia activity.
+- Intercepta screens real mainnet addresses; EVM addresses are chain-agnostic, so the design pays a real, Intercepta-known address on Sepolia to demonstrate that the same verdict would apply on any chain — but Intercepta's own data is a mainnet reputation signal, not something that has seen Sepolia activity.
 - The voucher-contract allowance set by `setup:allowance` is a one-time approval for the daily budget, not an enforced *per-day* renewal — nothing currently resets or re-caps it automatically each calendar day.
-- `config/stalls.json` payout addresses (`0x1111…`, `0x2222…`, etc., except the deliberately-flagged Kuro Yatai) are still placeholder addresses, not Intercepta's published test fixtures — swap them for Intercepta's known-good/known-bad test addresses before treating verdicts as meaningful beyond the one deliberate REFUSE.
+- **All five stall `payTo` addresses in `config/stalls.json` — Kuro Yatai included — are still sequential placeholders** (`0x1111…1111` through `0x5555…5555`), not Intercepta's published test fixtures, and `KEN_PAYTO` is blank. `INTERCEPTA_API_KEY` is also still blank in both `services/api/.env` and `services/signer/.env`. As shipped today, every screening call gets `ok:false` and `packages/core/src/risk.ts` falls back to `ASK` — no REFUSE actually happens yet, and every order/transfer needs the human's approval regardless of amount. Getting the intended PAY/CAP/ASK/REFUSE spread (including the deliberate Kuro Yatai REFUSE) requires setting `INTERCEPTA_API_KEY` and swapping in real Intercepta-flagged/clean addresses first — see `docs/demo-script.md`'s "Before recording" section.
 - Kanjō is x402-*style* (HTTP 402 + our own EIP-712 signature), not the official x402 SDK/facilitator (see Non-goals in `docs/spec.md`).
 
 ## Credits
