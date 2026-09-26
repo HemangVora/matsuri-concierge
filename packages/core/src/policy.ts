@@ -29,10 +29,16 @@ function decideLine(l: OrderLine, stalls: Stall[], risk: Record<string, RiskAsse
   const reasons = [...ra.reasons];
   let capped = false;
   if (ra.action === 'CAP') {
-    qty = Math.floor(qty * cfg.risk.capFraction);
+    // Absolute, price-based cap — not a fraction of the requested quantity — so re-evaluating the
+    // same stall always yields the same limit regardless of how much was originally asked for. A
+    // proportional cap (floor(qty * capFraction)) is not idempotent: composing an order at the
+    // already-capped quantity would cap it again, and the signer's independent re-evaluation could
+    // disagree with the api's.
+    const capQty = Math.floor((cfg.maxPerStallYen * cfg.risk.capFraction) / stall.priceYen);
     capped = true;
+    if (capQty === 0) return refuse([...reasons, 'Risk cap: quantity limited to 0']);
+    if (qty > capQty) qty = capQty;
     reasons.push(`Risk cap: quantity limited to ${qty}`);
-    if (qty === 0) return refuse(reasons);
   }
   const maxQty = Math.floor(cfg.maxPerStallYen / stall.priceYen);
   if (maxQty === 0) return refuse([`Price ¥${stall.priceYen} exceeds per-stall limit ¥${cfg.maxPerStallYen}`]);
@@ -74,9 +80,11 @@ export function evaluateTransfer(input: {
   if (!Number.isInteger(amountYen) || amountYen <= 0) return { ...base, action: 'REFUSE', reasons: ['Amount must be a positive whole number of yen'] };
   if (risk.action === 'REFUSE') return { ...base, action: 'REFUSE', reasons: risk.reasons };
   if (amountYen > cfg.dailyBudgetYen - input.spentTodayYen) return { ...base, action: 'REFUSE', reasons: ['Over daily budget'] };
-  const approvalReasons: string[] = [];
+  // Unlike an order (paying a registered, on-chain stall), a transfer pays an arbitrary address.
+  // Every non-refused transfer needs a human's sign-off, no matter how small or clean.
+  const approvalReasons: string[] = ['Every payout to a person needs your approval'];
   if (risk.action === 'ASK' || risk.action === 'CAP') approvalReasons.push(...risk.reasons, 'Recipient needs a human decision');
   if (amountYen >= cfg.approvalThresholdYen) approvalReasons.push(`Amount ¥${amountYen} ≥ ¥${cfg.approvalThresholdYen}`);
   const action = risk.action === 'PAY' ? 'PAY' : 'ASK';
-  return { to, amountYen, action, reasons: risk.reasons, requiresApproval: approvalReasons.length > 0, approvalReasons };
+  return { to, amountYen, action, reasons: risk.reasons, requiresApproval: true, approvalReasons };
 }

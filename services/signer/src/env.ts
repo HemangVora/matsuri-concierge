@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { Deployments, PolicyConfig } from '@mc/core';
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`${k} is required`); return v; };
 export const env = {
@@ -11,4 +12,7 @@ export const env = {
   deployments: JSON.parse(readFileSync(new URL('../../../deployments.json', import.meta.url), 'utf8')) as Deployments,
   // The signer loads its own copy of the policy; the api cannot loosen it.
   policy: JSON.parse(readFileSync(new URL('../../../config/policy.json', import.meta.url), 'utf8')) as PolicyConfig,
+  // The signer's own persisted ledger/replay-guard store. Always a gitignored path (*.sqlite is
+  // covered by the repo's root .gitignore); defaults next to this service so `npm run dev` just works.
+  statePath: process.env.SIGNER_STATE_PATH ?? fileURLToPath(new URL('../signer-state.sqlite', import.meta.url)),
 };

@@ -67,3 +67,24 @@ test('transfer to a flagged friend is refused; clean big transfer needs approval
   const t = evaluateTransfer({ to: '0xA1', amountYen: 1200, risk: pay, spentTodayYen: 0, cfg });
   assert.deepEqual([t.action, t.requiresApproval], ['PAY', true]);
 });
+test('every non-refused transfer needs approval, even a small clean one', () => {
+  const t = evaluateTransfer({ to: '0xA1', amountYen: 10, risk: pay, spentTodayYen: 0, cfg });
+  assert.deepEqual([t.action, t.requiresApproval], ['PAY', true]);
+  assert.ok(t.approvalReasons.includes('Every payout to a person needs your approval'));
+});
+test('risk CAP is an absolute, price-based limit, not proportional to the requested quantity', () => {
+  // Same stall (item 4, ¥500, capFraction 0.5, maxPerStallYen 1500) -> capQty = floor(1500*0.5/500) = 1
+  // regardless of whether 1 or 10 were requested. This is what makes re-evaluating an already-capped
+  // order idempotent: composing the tx at the capped quantity must not cap it again.
+  const requestedAtCap = run([{ itemId: 4, quantity: 1 }]).lines[0];
+  const requestedOver = run([{ itemId: 4, quantity: 10 }]).lines[0];
+  assert.deepEqual([requestedAtCap.action, requestedAtCap.qty], ['CAP', 1]);
+  assert.deepEqual([requestedOver.action, requestedOver.qty], ['CAP', 1]);
+});
+test('a risk cap that rounds down to zero units refuses the line', () => {
+  const pricey = stall(6, 4000, '0xA6'); // floor(1500 * 0.5 / 4000) = 0
+  const riskWithCap: Record<string, RiskAssessment> = { ...risk, '0xa6': { action: 'CAP', score: 20, reasons: ['Mixer transfers'] } };
+  const d = evaluateOrder({ lines: [{ itemId: 6, quantity: 1 }], stalls: [...stalls, pricey], risk: riskWithCap, spentTodayYen: 0, cfg });
+  assert.equal(d.lines[0].action, 'REFUSE');
+  assert.ok(d.lines[0].reasons.includes('Risk cap: quantity limited to 0'));
+});
