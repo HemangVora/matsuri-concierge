@@ -17,6 +17,12 @@ interface Bill { billId: string; memo: string; totalYen: number; shares: Record<
 
 export async function createBill(d: KanjoDeps, input: { participants: string[]; payments: { name: string; amountYen: number }[]; memo: string }) {
   const split = splitBill({ organizer: 'You', participants: input.participants, payments: input.payments });
+  // Validate every creditor has a known address before proposing or persisting anything: otherwise a
+  // later creditor missing from `friends` would throw mid-loop after earlier payouts were already
+  // proposed (and stored), leaving orphaned proposals with no bill to show for them.
+  for (const t of split.transfers) {
+    if (t.to !== 'You' && !d.friends[t.to]) throw new Error(`No address for ${t.to}`);
+  }
   const billId = keccakId(`bill:${randomUUID()}`);
   const bill: Bill = { billId, memo: input.memo, totalYen: split.totalYen, shares: split.shares,
     deadline: Math.floor(Date.now() / 1000) + 24 * 3600, requests: [], payouts: [] };
@@ -53,6 +59,17 @@ export async function acceptPayment(d: KanjoDeps, billId: string, fromName: stri
   if (!bill || !req) return { status: 404, body: { error: 'Unknown bill or payer' } };
   let payload: { from: string; signature: string };
   try { payload = JSON.parse(Buffer.from(header, 'base64').toString('utf8')); } catch { return { status: 400, body: { error: 'Bad X-PAYMENT' } }; }
+
+  // Bind the request's named debtor to a known address: without this, a share validly signed by
+  // anyone (e.g. another friend) could be submitted against a different friend's payment line.
+  const expected = d.friends[fromName];
+  if (!expected || payload.from.toLowerCase() !== expected.toLowerCase()) {
+    return { status: 403, body: { error: 'Payer does not match this request' } };
+  }
+  // A line that is already paid or held cannot be settled again — checked up front, before spending
+  // any effort verifying a signature that (even if perfectly valid) can no longer apply here.
+  if (req.status !== 'pending') return { status: 409, body: { error: 'Request is not pending' } };
+
   const share = { billId, from: payload.from, to: d.agentAddress, amount: yenToWei(req.amountYen), deadline: BigInt(bill.deadline) };
   let signer = '';
   try { signer = recoverShareSigner(d.chainId, d.deployments.settlement, share, payload.signature); } catch { /* invalid */ }
@@ -65,15 +82,27 @@ export async function acceptPayment(d: KanjoDeps, billId: string, fromName: stri
     bus.emit('kanjo_held', { billId, from: fromName, reasons: risk.reasons });
     return { status: 403, body: { held: true, reasons: risk.reasons } };
   }
+  // markShare stays ahead of execute (guards against a concurrent double submission of the same
+  // share); if execute doesn't actually land (signer failure, composeSettle throwing), we unmark so
+  // the payer isn't permanently locked out by a share that never settled.
   if (!d.store.markShare(billId, payload.from)) return { status: 409, body: { error: 'Share already submitted' } };
 
-  const tx = await d.mb.composeSettle({ billId, from: payload.from, to: d.agentAddress, amountYen: req.amountYen,
-    deadline: bill.deadline, signature: payload.signature }, d.agentAddress);
+  let tx;
+  try {
+    tx = await d.mb.composeSettle({ billId, from: payload.from, to: d.agentAddress, amountYen: req.amountYen,
+      deadline: bill.deadline, signature: payload.signature }, d.agentAddress);
+  } catch (e) {
+    d.store.unmarkShare(billId, payload.from);
+    return { status: 502, body: { error: (e as Error).message } };
+  }
   const proposalId = randomUUID();
   d.store.insertProposal({ id: proposalId, kind: 'settle', status: 'proposed', hash: hashProposal(d.chainId, [tx]),
     totalYen: req.amountYen, requiresApproval: false, decision: { risk }, txs: [tx], meta: { billId, from: fromName } });
   const r = await execute(d, proposalId);
-  if (r.status !== 'executed') return { status: 502, body: { error: r.reason ?? r.status } };
+  if (r.status !== 'executed') {
+    d.store.unmarkShare(billId, payload.from);
+    return { status: 502, body: { error: r.reason ?? r.status } };
+  }
   req.status = 'paid'; req.txHash = r.txHashes![0];
   d.store.putBill(billId, bill);
   bus.emit('kanjo_paid', { billId, from: fromName, amountYen: req.amountYen, txHash: req.txHash });

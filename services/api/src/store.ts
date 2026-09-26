@@ -75,5 +75,8 @@ export function openStore(path: string) {
       const r = db.prepare('INSERT OR IGNORE INTO shares VALUES (?,?)').run(billId, from.toLowerCase());
       return r.changes === 1;
     },
+    unmarkShare(billId: string, from: string) {
+      db.prepare('DELETE FROM shares WHERE bill_id = ? AND payer = ?').run(billId, from.toLowerCase());
+    },
   };
 }

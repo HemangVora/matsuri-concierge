@@ -43,3 +43,11 @@ test('screening cache respects max age and share dedupe works once', () => {
   assert.equal(s.markShare('bill', '0xF'), true);
   assert.equal(s.markShare('bill', '0xf'), false);
 });
+
+test('unmarkShare frees a share so it can be re-marked (e.g. after a failed settle)', () => {
+  const s = openStore(':memory:');
+  assert.equal(s.markShare('bill', '0xF'), true);
+  assert.equal(s.markShare('bill', '0xf'), false);
+  s.unmarkShare('bill', '0xF');
+  assert.equal(s.markShare('bill', '0xf'), true);
+});
