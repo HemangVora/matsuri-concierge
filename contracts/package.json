@@ -1,0 +1,37 @@
+{
+  "name": "matsuri-stablecoin-contracts",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:list": "hardhat ignition deployments",
+    "deploy:sepolia": "hardhat ignition deploy ignition/modules/MatsuriConcierge.ts --network sepolia",
+    "deploy:reset:sepolia": "rm -rf ignition/deployments/chain-11155111",
+    "fund": "hardhat run scripts/fund.ts --network sepolia",
+    "deploy": "hardhat ignition deploy ignition/modules/MatsuriDemo.ts"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "4.2.0",
+    "@nomicfoundation/hardhat-ethers-chai-matchers": "3.0.11",
+    "@nomicfoundation/hardhat-ignition": "3.1.8",
+    "@nomicfoundation/hardhat-mocha": "4.0.0",
+    "@types/mocha": "10.0.10",
+    "@types/node": "24.13.6",
+    "chai": "6.2.2",
+    "chalk": "5.6.2",
+    "dotenv": "18.0.3",
+    "ethers": "6.17.0",
+    "hardhat": "3.18.0",
+    "hardhat-multibaas-plugin": "3.0.0",
+    "mocha": "12.0.2",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "5.6.1"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
