@@ -30,5 +30,5 @@ app.post('/friends/:name/pay', async (c) => {
   return c.json({ status: result.status, body: result.body });
 });
 
-serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8790) });
-console.log('friend agents Aoi, Mei on :8790');
+serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8790), hostname: '127.0.0.1' });
+console.log('friend agents Aoi, Mei on 127.0.0.1:8790');

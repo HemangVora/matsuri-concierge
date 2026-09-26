@@ -62,7 +62,8 @@ app.get('/api/proposals/:id', (c) => {
 });
 app.post('/api/proposals/:id/approve', async (c) => {
   const id = c.req.param('id');
-  const body = await c.req.json<{ signature: string; totalYen: number; expiresAt: number }>();
+  const body = await c.req.json<{ signature: string; totalYen: number; expiresAt: number }>().catch(() => null);
+  if (!body) return c.json({ ok: false, reason: 'Malformed JSON body' }, 400);
   // The signer refuses an approval whose totalYen/expiresAt aren't JSON numbers (it will not coerce
   // a string). Reject the same malformed shapes here, before touching the store, so the failure is
   // reported at the api boundary rather than surfacing later as an opaque signer refusal.
@@ -91,5 +92,8 @@ app.get('/kanjo/bills/:billId/pay', async (c) => {
   return c.json(r.body, r.status as 200);
 });
 
-serve({ fetch: app.fetch, port: env.port });
-console.log(`api on :${env.port} (agent wallet ${env.agentAddress}, no keys here)`);
+// Loopback-only: the api exposes unsigned proposals, approval flows and the internal signer
+// endpoint. Binding to every interface would put all of that on the LAN with no additional auth.
+// A phone approving from off-host needs a LAN/tunnel forward to this port — see the README.
+serve({ fetch: app.fetch, port: env.port, hostname: '127.0.0.1' });
+console.log(`api on 127.0.0.1:${env.port} (agent wallet ${env.agentAddress}, no keys here)`);
