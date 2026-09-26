@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Wallet } from 'ethers';
+import { Signature, Wallet } from 'ethers';
 import {
   APPROVAL_TYPES, approvalDomain, erc20Iface, hashProposal, settlementIface, shareDomain, SHARE_TYPES, voucherIface,
   type PolicyConfig,
 } from '@mc/core';
-import { verifyForSigning, type VerifyCtx } from '../src/verify.ts';
+import { approvalKey, verifyForSigning, type VerifyCtx } from '../src/verify.ts';
 
 const deployments = { chainId: 11155111, stablecoin: '0x00000000000000000000000000000000000000c0',
   voucher: '0x00000000000000000000000000000000000000b0', settlement: '0x00000000000000000000000000000000000000d0' };
@@ -31,7 +31,7 @@ function baseCtx(overrides: Partial<VerifyCtx> = {}): VerifyCtx {
     deployments, policy, approver: human.address, agentAddress, spentTodayYen: 0,
     ledgerSpentTodayYen: async () => 0,
     isConsumed: async () => false,
-    isSignatureUsed: async () => false,
+    isApprovalUsed: async () => false,
     readItem: async (id: number) => items[id],
     screen: async (address: string) => ({ address, ok: true, fetchedAt: 'now', result: screenResult(address) }),
     ...overrides,
@@ -115,13 +115,32 @@ test('replay of a consumed proposal id is refused', async () => {
   assert.equal(r.ok, false);
 });
 
-test('replay of an already-used approval signature is refused', async () => {
+test('replay of an already-used approval is refused', async () => {
   const txs = [buy(1, 2)];
   const expiresAt = Math.floor(Date.now() / 1000) + 600;
   const signature = await human.signTypedData(approvalDomain(11155111), APPROVAL_TYPES,
     { proposalHash: hashProposal(11155111, txs), totalYen: 1200, expiresAt });
-  const r = await verifyForSigning(order(txs, { signature, totalYen: 1200, expiresAt }), baseCtx({ isSignatureUsed: async () => true }));
+  const r = await verifyForSigning(order(txs, { signature, totalYen: 1200, expiresAt }), baseCtx({ isApprovalUsed: async () => true }));
   assert.equal(r.ok, false);
+});
+
+test('the approval-used guard keys on approved content, not signature encoding: a re-encoded signature (uppercase hex or EIP-2098 compact form) on a brand-new proposal id is still recognized as the same, already-used approval', async () => {
+  const txs = [buy(1, 2)];
+  const expiresAt = Math.floor(Date.now() / 1000) + 600;
+  const signature = await human.signTypedData(approvalDomain(11155111), APPROVAL_TYPES,
+    { proposalHash: hashProposal(11155111, txs), totalYen: 1200, expiresAt });
+  // Simulate the persisted store: it was keyed on the *content* the first time this approval was
+  // spent, so it must recognize the same content again regardless of how the signature is encoded.
+  const spentKey = approvalKey(11155111, txs, { totalYen: 1200, expiresAt });
+  const ctxWithSpentApproval = baseCtx({ isApprovalUsed: async (key) => key === spentKey });
+
+  const uppercased = { signature: '0x' + signature.slice(2).toUpperCase(), totalYen: 1200, expiresAt };
+  const compact = { signature: Signature.from(signature).compactSerialized, totalYen: 1200, expiresAt };
+
+  const r1 = await verifyForSigning({ id: 'new-proposal-1', kind: 'order', chainId: 11155111, txs, approval: uppercased }, ctxWithSpentApproval);
+  assert.equal(r1.ok, false);
+  const r2 = await verifyForSigning({ id: 'new-proposal-2', kind: 'order', chainId: 11155111, txs, approval: compact }, ctxWithSpentApproval);
+  assert.equal(r2.ok, false);
 });
 
 test('malformed calldata is refused, never throws', async () => {

@@ -19,25 +19,46 @@ test('recordSpend ignores zero/negative amounts', () => {
   assert.equal(s.spentTodayYen(), 0);
 });
 
-test('consumed proposal ids and used approval signatures round-trip', () => {
+test('tryClaim atomically claims a proposal id and its approval key, and reserves the spend', () => {
   const s = openState(':memory:');
   assert.equal(s.isConsumed('p1'), false);
-  s.markConsumed('p1');
-  assert.equal(s.isConsumed('p1'), true);
-  assert.equal(s.isConsumed('p2'), false);
+  assert.equal(s.isApprovalUsed('key-a'), false);
 
-  assert.equal(s.isSignatureUsed('0xsig'), false);
-  s.markSignatureUsed('0xsig');
-  assert.equal(s.isSignatureUsed('0xsig'), true);
-  assert.equal(s.isSignatureUsed('0xother'), false);
+  assert.equal(s.tryClaim('p1', 'key-a', 600), true);
+  assert.equal(s.isConsumed('p1'), true);
+  assert.equal(s.isApprovalUsed('key-a'), true);
+  // The spend is reserved as part of the claim itself, not after some later "send" step.
+  assert.equal(s.spentTodayYen(), 600);
 });
 
-test('marking the same proposal/signature consumed twice does not throw', () => {
+test('a second claim of the same proposal id fails and reserves nothing further', () => {
   const s = openState(':memory:');
-  s.markConsumed('p1');
-  s.markConsumed('p1');
-  s.markSignatureUsed('0xsig');
-  s.markSignatureUsed('0xsig');
-  assert.equal(s.isConsumed('p1'), true);
-  assert.equal(s.isSignatureUsed('0xsig'), true);
+  assert.equal(s.tryClaim('p1', 'key-a', 600), true);
+  assert.equal(s.tryClaim('p1', 'key-b', 100), false); // same proposal id, different approval — still refused
+  assert.equal(s.spentTodayYen(), 600);
+});
+
+test('a second claim of an already-used approval key fails even under a brand-new proposal id, and rolls back the proposal claim', () => {
+  const s = openState(':memory:');
+  assert.equal(s.tryClaim('p1', 'key-a', 600), true);
+  assert.equal(s.tryClaim('p2', 'key-a', 100), false);
+  // p2's proposal-id claim must not be left dangling: a legitimate future proposal reusing that id
+  // (which should never happen, but defense in depth) is not falsely blocked by this losing attempt.
+  assert.equal(s.isConsumed('p2'), false);
+  assert.equal(s.spentTodayYen(), 600);
+});
+
+test('tryClaim without an approval key (below-threshold proposals) still guards against replay', () => {
+  const s = openState(':memory:');
+  assert.equal(s.tryClaim('p1', null, 300), true);
+  assert.equal(s.spentTodayYen(), 300);
+  assert.equal(s.tryClaim('p1', null, 300), false);
+  assert.equal(s.spentTodayYen(), 300);
+});
+
+test('a claim that reserves zero yen (e.g. settle) still guards the proposal id', () => {
+  const s = openState(':memory:');
+  assert.equal(s.tryClaim('settle-1', null, 0), true);
+  assert.equal(s.spentTodayYen(), 0);
+  assert.equal(s.tryClaim('settle-1', null, 0), false);
 });

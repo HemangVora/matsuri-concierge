@@ -39,10 +39,19 @@ export async function preflight(txs: UnsignedTx[]): Promise<{ ok: true } | { ok:
 export async function sendAll(txs: UnsignedTx[]): Promise<string[]> {
   const hashes: string[] = [];
   for (const t of txs) {
+    let sent;
     try {
-      const sent = await wallet.sendTransaction({ to: t.to, data: t.data, value: BigInt(t.value) });
+      sent = await wallet.sendTransaction({ to: t.to, data: t.data, value: BigInt(t.value) });
+    } catch (e) {
+      throw new PartialSendError((e as Error).message, hashes);
+    }
+    // Record the hash as soon as it exists, before awaiting the mining wait: a tx that gets mined
+    // but reverts (or is dropped/replaced) throws out of wait(1), and that hash must still be
+    // reported to the caller — it landed on-chain and cannot be undone, so losing track of it here
+    // would make PartialSendError under-report what was actually sent.
+    hashes.push(sent.hash);
+    try {
       await sent.wait(1);
-      hashes.push(sent.hash);
     } catch (e) {
       throw new PartialSendError((e as Error).message, hashes);
     }

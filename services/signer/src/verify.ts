@@ -1,7 +1,8 @@
 import {
   assessRisk, erc20Iface, evaluateOrder, evaluateTransfer, hashProposal, recoverShareSigner, settlementIface,
   verifyApproval, voucherIface, weiToYen,
-  type Deployments, type OrderLine, type PolicyConfig, type ProposalForSigner, type RiskAssessment, type Screening, type Stall,
+  type ApprovalRecord, type Deployments, type OrderLine, type PolicyConfig, type ProposalForSigner, type RiskAssessment,
+  type Screening, type Stall, type UnsignedTx,
 } from '@mc/core';
 import { getAddress } from 'ethers';
 
@@ -17,13 +18,25 @@ export interface VerifyCtx {
   ledgerSpentTodayYen(): Promise<number>;
   // Replay guards, backed by the signer's own persisted state — never trust the api on this either.
   isConsumed(proposalId: string): Promise<boolean>;
-  isSignatureUsed(signature: string): Promise<boolean>;
+  // Keyed by the *approved content* (see approvalKey below), not by the raw signature bytes: the
+  // same ECDSA signature has multiple valid string encodings (upper/lowercase hex, the 65-byte
+  // r||s||v form, the EIP-2098 64-byte compact form), and all of them must be recognized as "this
+  // approval was already spent" or a compromised api could replay an approved order/transfer under
+  // a fresh proposal id, before expiresAt, just by re-encoding the same signature.
+  isApprovalUsed(key: string): Promise<boolean>;
   readItem(itemId: number): Promise<{ priceYen: number; available: number; payTo: string }>;
   screen(address: string): Promise<Screening>; now?: number;
 }
 type Result = { ok: true; spendYen: number } | { ok: false; reason: string };
 const fail = (reason: string): Result => ({ ok: false, reason });
 const same = (a: string, b: string) => getAddress(a) === getAddress(b);
+
+// The identity of an approval is what the human actually signed off on — which proposal hash, for
+// how much, valid until when — not the bytes of the signature itself. Two different encodings of
+// the exact same signature must produce the exact same key.
+export function approvalKey(chainId: number, txs: UnsignedTx[], approval: Pick<ApprovalRecord, 'totalYen' | 'expiresAt'>): string {
+  return `${hashProposal(chainId, txs).toLowerCase()}|${approval.totalYen}|${approval.expiresAt}`;
+}
 
 function checkApproval(p: ProposalForSigner, ctx: VerifyCtx, totalYen: number): Result {
   if (!p.approval) return fail('Human approval required but missing');
@@ -50,7 +63,7 @@ async function run(p: ProposalForSigner, ctx: VerifyCtx): Promise<Result> {
   if (p.txs.length === 0) return fail('Nothing to sign');
   if (p.txs.some((t) => BigInt(t.value) !== 0n)) return fail('Native value transfers are not allowed');
   if (await ctx.isConsumed(p.id)) return fail('Proposal already executed');
-  if (p.approval && (await ctx.isSignatureUsed(p.approval.signature))) return fail('Approval signature already used');
+  if (p.approval && (await ctx.isApprovalUsed(approvalKey(p.chainId, p.txs, p.approval)))) return fail('Approval already used');
 
   // A finite, non-negative whole number of yen is the only shape of "spent today" the signer will
   // accept from the api at all; anything else (NaN, a negative number meant to fake headroom,
