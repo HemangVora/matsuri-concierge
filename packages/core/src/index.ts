@@ -5,3 +5,5 @@ export * from './abi.ts';
 export * from './hash.ts';
 export * from './approval.ts';
 export * from './share.ts';
+export * from './risk.ts';
+export * from './policy.ts';
