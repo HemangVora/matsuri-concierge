@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { quickScan, type ProposalForSigner } from '@mc/core';
 import { env } from './env.ts';
-import { readItem, sendAll, preflight, wallet, PartialSendError } from './chain.ts';
+import { readItem, sendAll, preflight, wallet, PartialSendError, withTimeout } from './chain.ts';
 import { approvalKey, verifyForSigning } from './verify.ts';
 import { openState } from './state.ts';
 
@@ -36,6 +36,13 @@ app.post('/sign', async (c) => {
   inFlight.add(proposalId);
   try {
     return await serialized(() => handleSign(proposalId));
+  } catch (e) {
+    // Anything that escapes here — including a fetch/preflight/wait timeout — fails closed with a
+    // plain error response instead of leaking to Hono's default handler. The mutex itself is
+    // unaffected: `serialized`'s internal chain already settles on rejection (see above), so the
+    // next queued /sign proceeds normally regardless of what happens to this response.
+    console.error(`[signer] ERROR ${proposalId}: ${(e as Error).message}`);
+    return c.json({ error: (e as Error).message }, 500);
   } finally {
     inFlight.delete(proposalId);
   }
@@ -46,7 +53,9 @@ async function handleSign(proposalId: string) {
   // no matter what the api says about it now.
   if (state.isConsumed(proposalId)) return jsonResponse({ error: 'Proposal already executed' }, 422);
 
-  const res = await fetch(`${env.apiUrl}/internal/proposals/${encodeURIComponent(proposalId)}`);
+  // 10s cap on the internal api call: a hung fetch would otherwise block this request — and, via
+  // the mutex, every later /sign — forever.
+  const res = await fetch(`${env.apiUrl}/internal/proposals/${encodeURIComponent(proposalId)}`, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) return jsonResponse({ error: 'Unknown proposal' }, 404);
   const { proposal, spentTodayYen } = (await res.json()) as { proposal: ProposalForSigner; spentTodayYen: number };
   if (proposal.id !== proposalId) return jsonResponse({ error: 'Proposal id mismatch' }, 400);
@@ -64,7 +73,7 @@ async function handleSign(proposalId: string) {
     return jsonResponse({ error: verdict.reason }, 422);
   }
 
-  const pre = await preflight(proposal.txs);
+  const pre = await withTimeout(preflight(proposal.txs), 60_000, 'Preflight timed out');
   if (!pre.ok) {
     console.log(`[signer] REFUSED ${proposalId}: ${pre.error}`);
     return jsonResponse({ error: pre.error }, 422);

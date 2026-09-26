@@ -1,10 +1,10 @@
 import {
-  assessRisk, erc20Iface, evaluateOrder, evaluateTransfer, hashProposal, recoverShareSigner, settlementIface,
-  verifyApproval, voucherIface, weiToYen,
+  APPROVAL_TYPES, approvalDomain, assessRisk, erc20Iface, evaluateOrder, evaluateTransfer, hashProposal,
+  recoverShareSigner, settlementIface, verifyApproval, voucherIface, weiToYen,
   type ApprovalRecord, type Deployments, type OrderLine, type PolicyConfig, type ProposalForSigner, type RiskAssessment,
   type Screening, type Stall, type UnsignedTx,
 } from '@mc/core';
-import { getAddress } from 'ethers';
+import { getAddress, TypedDataEncoder } from 'ethers';
 
 export interface VerifyCtx {
   deployments: Deployments; policy: PolicyConfig; approver: string; agentAddress: string;
@@ -32,10 +32,21 @@ const fail = (reason: string): Result => ({ ok: false, reason });
 const same = (a: string, b: string) => getAddress(a) === getAddress(b);
 
 // The identity of an approval is what the human actually signed off on — which proposal hash, for
-// how much, valid until when — not the bytes of the signature itself. Two different encodings of
-// the exact same signature must produce the exact same key.
+// how much, valid until when — not the bytes of the signature itself, nor the surface spelling of
+// its fields. A hand-rolled string key (e.g. `${totalYen}|${expiresAt}`) is only as canonical as its
+// inputs: ethers' ABI/typed-data encoding happily accepts "0x6ab7872e", " 1790412590", and
+// "01790412590" as the same uint64 and produces the same valid signature verification for all of
+// them, so a naive string key would treat those as different approvals and let one signature be
+// replayed under a fresh proposal id for each spelling. Using the canonical EIP-712 digest itself —
+// the exact value that was hashed and signed, computed the same way verifyApproval computes it —
+// means two encodings that verify as the same approval always produce the same key by construction.
+// Callers MUST validate approval.totalYen/expiresAt with Number.isSafeInteger before calling this
+// (see run() below) so a non-numeric or exotic-format field is rejected outright rather than being
+// silently coerced by the encoder.
 export function approvalKey(chainId: number, txs: UnsignedTx[], approval: Pick<ApprovalRecord, 'totalYen' | 'expiresAt'>): string {
-  return `${hashProposal(chainId, txs).toLowerCase()}|${approval.totalYen}|${approval.expiresAt}`;
+  const proposalHash = hashProposal(chainId, txs);
+  return TypedDataEncoder.hash(approvalDomain(chainId), APPROVAL_TYPES,
+    { proposalHash, totalYen: approval.totalYen, expiresAt: approval.expiresAt }).toLowerCase();
 }
 
 function checkApproval(p: ProposalForSigner, ctx: VerifyCtx, totalYen: number): Result {
@@ -62,6 +73,15 @@ async function run(p: ProposalForSigner, ctx: VerifyCtx): Promise<Result> {
   if (p.chainId !== ctx.deployments.chainId) return fail('Wrong chain');
   if (p.txs.length === 0) return fail('Nothing to sign');
   if (p.txs.some((t) => BigInt(t.value) !== 0n)) return fail('Native value transfers are not allowed');
+
+  // Checked before any key is computed or looked up: only a genuine JS safe integer for
+  // totalYen/expiresAt is accepted. A string spelling of the same number ("0x...", a leading space,
+  // zero-padding) would still verify under verifyApproval's typed-data encoding but is refused here
+  // outright, so approvalKey below only ever runs on values with exactly one canonical form.
+  if (p.approval && (!Number.isSafeInteger(p.approval.expiresAt) || !Number.isSafeInteger(p.approval.totalYen))) {
+    return fail('Malformed approval: expiresAt and totalYen must be safe integers');
+  }
+
   if (await ctx.isConsumed(p.id)) return fail('Proposal already executed');
   if (p.approval && (await ctx.isApprovalUsed(approvalKey(p.chainId, p.txs, p.approval)))) return fail('Approval already used');
 

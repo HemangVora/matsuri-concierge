@@ -6,6 +6,7 @@ import {
   type PolicyConfig,
 } from '@mc/core';
 import { approvalKey, verifyForSigning, type VerifyCtx } from '../src/verify.ts';
+import { openState } from '../src/state.ts';
 
 const deployments = { chainId: 11155111, stablecoin: '0x00000000000000000000000000000000000000c0',
   voucher: '0x00000000000000000000000000000000000000b0', settlement: '0x00000000000000000000000000000000000000d0' };
@@ -115,13 +116,14 @@ test('replay of a consumed proposal id is refused', async () => {
   assert.equal(r.ok, false);
 });
 
-test('replay of an already-used approval is refused', async () => {
+test('replay of an already-used approval is refused, with the reason', async () => {
   const txs = [buy(1, 2)];
   const expiresAt = Math.floor(Date.now() / 1000) + 600;
   const signature = await human.signTypedData(approvalDomain(11155111), APPROVAL_TYPES,
     { proposalHash: hashProposal(11155111, txs), totalYen: 1200, expiresAt });
   const r = await verifyForSigning(order(txs, { signature, totalYen: 1200, expiresAt }), baseCtx({ isApprovalUsed: async () => true }));
   assert.equal(r.ok, false);
+  if (!r.ok) assert.match(r.reason, /already used/i);
 });
 
 test('the approval-used guard keys on approved content, not signature encoding: a re-encoded signature (uppercase hex or EIP-2098 compact form) on a brand-new proposal id is still recognized as the same, already-used approval', async () => {
@@ -139,8 +141,60 @@ test('the approval-used guard keys on approved content, not signature encoding: 
 
   const r1 = await verifyForSigning({ id: 'new-proposal-1', kind: 'order', chainId: 11155111, txs, approval: uppercased }, ctxWithSpentApproval);
   assert.equal(r1.ok, false);
+  if (!r1.ok) assert.match(r1.reason, /already used/i);
   const r2 = await verifyForSigning({ id: 'new-proposal-2', kind: 'order', chainId: 11155111, txs, approval: compact }, ctxWithSpentApproval);
   assert.equal(r2.ok, false);
+  if (!r2.ok) assert.match(r2.reason, /already used/i);
+});
+
+test('an approval whose expiresAt is spelled as a hex string, a leading-space string, or a zero-padded string is refused as malformed, not accepted or key-confused', async () => {
+  const txs = [buy(1, 2)];
+  const canonicalExpiresAt = Math.floor(Date.now() / 1000) + 600;
+  const signature = await human.signTypedData(approvalDomain(11155111), APPROVAL_TYPES,
+    { proposalHash: hashProposal(11155111, txs), totalYen: 1200, expiresAt: canonicalExpiresAt });
+
+  const spellings = [
+    '0x' + canonicalExpiresAt.toString(16), // hex string
+    ` ${canonicalExpiresAt}`, // leading-space string
+    `0${canonicalExpiresAt}`, // zero-padded string
+  ];
+  for (const expiresAt of spellings) {
+    const r = await verifyForSigning(order(txs, { signature, totalYen: 1200, expiresAt: expiresAt as unknown as number }), ctx);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.match(r.reason, /safe integer/i);
+  }
+});
+
+test('an approval whose totalYen is not a genuine safe integer is refused as malformed', async () => {
+  const txs = [buy(1, 2)];
+  const expiresAt = Math.floor(Date.now() / 1000) + 600;
+  const signature = await human.signTypedData(approvalDomain(11155111), APPROVAL_TYPES,
+    { proposalHash: hashProposal(11155111, txs), totalYen: 1200, expiresAt });
+  const r = await verifyForSigning(order(txs, { signature, totalYen: '1200' as unknown as number, expiresAt }), ctx);
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.match(r.reason, /safe integer/i);
+});
+
+test('an approval used once under proposal p1 is refused under a different proposal p2 with identical txs (real state store round trip)', async () => {
+  const state = openState(':memory:');
+  const txs = [buy(1, 2)];
+  const expiresAt = Math.floor(Date.now() / 1000) + 600;
+  const signature = await human.signTypedData(approvalDomain(11155111), APPROVAL_TYPES,
+    { proposalHash: hashProposal(11155111, txs), totalYen: 1200, expiresAt });
+  const approval = { signature, totalYen: 1200, expiresAt };
+  const key = approvalKey(11155111, txs, approval);
+  const stateCtx = baseCtx({
+    isConsumed: async (id) => state.isConsumed(id),
+    isApprovalUsed: async (k) => state.isApprovalUsed(k),
+  });
+
+  const first = await verifyForSigning({ id: 'p1', kind: 'order', chainId: 11155111, txs, approval }, stateCtx);
+  assert.deepEqual(first, { ok: true, spendYen: 1200 });
+  assert.equal(state.tryClaim('p1', key, first.ok ? first.spendYen : 0), true);
+
+  const second = await verifyForSigning({ id: 'p2', kind: 'order', chainId: 11155111, txs, approval }, stateCtx);
+  assert.equal(second.ok, false);
+  if (!second.ok) assert.match(second.reason, /already used/i);
 });
 
 test('malformed calldata is refused, never throws', async () => {

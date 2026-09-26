@@ -22,6 +22,17 @@ export class PartialSendError extends Error {
   }
 }
 
+// A hung RPC call (estimateGas, wait(...)) would otherwise block the /sign mutex forever, wedging
+// every later request behind it. This forces a rejection after `ms`, so the caller always fails
+// closed and the mutex is released, instead of a single stuck call taking the whole signer down.
+export function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // Dry-run every tx before any of them are sent, so a proposal that would revert never gets us
 // partway through a multi-tx order. Returns the first failure's reason, if any.
 export async function preflight(txs: UnsignedTx[]): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -51,7 +62,7 @@ export async function sendAll(txs: UnsignedTx[]): Promise<string[]> {
     // would make PartialSendError under-report what was actually sent.
     hashes.push(sent.hash);
     try {
-      await sent.wait(1);
+      await withTimeout(sent.wait(1), 60_000, 'Transaction wait timed out');
     } catch (e) {
       throw new PartialSendError((e as Error).message, hashes);
     }
