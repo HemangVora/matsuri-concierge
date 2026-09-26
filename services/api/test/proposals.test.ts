@@ -83,3 +83,29 @@ test('a failed execute is terminal; the signer is never retried', async () => {
   assert.equal(second.status, 'failed');
   assert.equal(calls, 1);
 });
+
+test('two concurrent execute() calls race safely: the signer is called once, the loser gets "executing", the final status is "executed"', async () => {
+  const d = deps();
+  let calls = 0;
+  const resolvers: ((v: { txHashes: string[] }) => void)[] = [];
+  d.signer = {
+    sign: async () => {
+      calls++;
+      return new Promise((resolve) => { resolvers.push(resolve); });
+    },
+  };
+  const v = await proposeOrder(d, [{ itemId: 1, quantity: 1 }]);
+  const p1 = execute(d, v.proposalId);
+  const p2 = execute(d, v.proposalId);
+  // Resolve whatever slow-signer promises exist so far before awaiting either result: a correct
+  // implementation only ever creates one (the loser never reaches the signer at all), but resolving
+  // via a shared array — rather than awaiting one call before triggering the other — means a buggy
+  // implementation that calls the signer twice fails these assertions cleanly instead of deadlocking
+  // this test on an orphaned, never-resolved promise.
+  await Promise.resolve();
+  resolvers.forEach((r) => r({ txHashes: ['0xhash'] }));
+  const [r1, r2] = await Promise.all([p1, p2]);
+  assert.deepEqual([r1.status, r2.status].sort(), ['executed', 'executing']);
+  assert.equal(calls, 1);
+  assert.equal(d.store.getProposal(v.proposalId)!.status, 'executed');
+});

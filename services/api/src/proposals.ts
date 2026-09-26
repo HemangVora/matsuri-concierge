@@ -78,6 +78,11 @@ export async function execute(d: Deps, id: string) {
   if (p.status === 'refused' || p.status === 'held' || p.status === 'executed') return { status: p.status };
   if (p.status === 'failed') return { status: 'failed' as ProposalStatus, reason: 'Proposal failed; propose a new one' };
   if (p.requiresApproval && !p.approval) return { status: 'awaiting_approval' as ProposalStatus };
+  // Atomic claim: only the caller that flips 'proposed'/'approved' -> 'executing' may go on to call
+  // the signer and later write 'failed'/'executed'. A concurrent second call for the same id loses
+  // the claim and returns immediately without ever reaching the signer — this is what stops a race
+  // from producing a spurious "Signer refused" for a request that was, in fact, still in flight.
+  if (!d.store.claimExecution(id)) return { status: 'executing' as ProposalStatus };
   try {
     const { txHashes } = await d.signer.sign(id);
     d.store.setStatus(id, 'executed', txHashes);

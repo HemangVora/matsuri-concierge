@@ -34,6 +34,10 @@ test('isToolError: execute_order success-shaped statuses are not errors', () => 
   assert.equal(isToolError('execute_order', { status: 'awaiting_approval' }), false);
 });
 
+test('isToolError: execute_order "executing" (lost the claim race to a concurrent call) is not an error', () => {
+  assert.equal(isToolError('execute_order', { status: 'executing' }), false);
+});
+
 test('isToolError: propose_order reporting a refused proposal is a valid answer, not an error', () => {
   assert.equal(isToolError('propose_order', { status: 'refused', totalYen: 0 }), false);
 });

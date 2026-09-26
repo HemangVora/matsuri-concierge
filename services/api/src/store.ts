@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { ApprovalRecord, ProposalKind, Screening, UnsignedTx } from '@mc/core';
 
-export type ProposalStatus = 'proposed' | 'awaiting_approval' | 'approved' | 'executed' | 'refused' | 'held' | 'failed';
+export type ProposalStatus = 'proposed' | 'awaiting_approval' | 'approved' | 'executing' | 'executed' | 'refused' | 'held' | 'failed';
 export interface ProposalRow {
   id: string; kind: ProposalKind; status: ProposalStatus; hash: string; totalYen: number;
   requiresApproval: boolean; decision: unknown; txs: UnsignedTx[]; approval: ApprovalRecord | null;
@@ -42,6 +42,15 @@ export function openStore(path: string) {
     setStatus(id: string, status: ProposalStatus, txHashes?: string[]) {
       if (txHashes) db.prepare('UPDATE proposals SET status = ?, tx_hashes = ? WHERE id = ?').run(status, JSON.stringify(txHashes), id);
       else db.prepare('UPDATE proposals SET status = ? WHERE id = ?').run(status, id);
+    },
+    // Atomically claims a proposal for execution: only a proposal still in 'proposed' or 'approved'
+    // can be claimed, and the UPDATE + changes-count check happen as one synchronous SQLite
+    // statement, so two concurrent execute() calls for the same id can never both believe they won.
+    // The loser must not call the signer at all — only the caller that gets `true` back may go on to
+    // write 'executed' or 'failed'.
+    claimExecution(id: string): boolean {
+      const r = db.prepare(`UPDATE proposals SET status = 'executing' WHERE id = ? AND status IN ('proposed','approved')`).run(id);
+      return r.changes === 1;
     },
     spentTodayYen(now = new Date()): number {
       // Budget day is anchored to a fixed Asia/Tokyo (+09:00, no DST) calendar day, independent of the
