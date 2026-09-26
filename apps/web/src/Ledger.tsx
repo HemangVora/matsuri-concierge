@@ -3,8 +3,16 @@ import { getLedger, type FeedEvent } from './api.ts';
 
 export default function Ledger({ events }: { events: FeedEvent[] }) {
   const [l, setL] = useState<any>(null);
+  const [failed, setFailed] = useState(false);
   const executedCount = events.filter((e) => e.type === 'executed').length;
-  useEffect(() => { void getLedger().then(setL); }, [executedCount]);
+  useEffect(() => {
+    let cancelled = false;
+    getLedger()
+      .then((data) => { if (!cancelled) { setL(data); setFailed(false); } })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [executedCount]);
+  if (failed) return <section className="panel ledger"><p className="muted">Ledger unavailable (api offline)</p></section>;
   if (!l) return null;
   return (
     <section className="panel ledger">

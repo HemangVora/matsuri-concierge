@@ -119,6 +119,41 @@ main {
   color: var(--ink);
 }
 
+.chat .msgs p.agent.error {
+  background: rgba(181, 49, 31, 0.12);
+  color: var(--refuse);
+}
+
+.empty-hint {
+  color: var(--muted);
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px dashed var(--border);
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.chip:hover {
+  border-style: solid;
+  border-color: var(--lantern);
+}
+
 .chat form {
   display: flex;
   gap: 8px;
@@ -152,6 +187,13 @@ main {
   color: var(--ink);
 }
 
+.friend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .friend {
   align-self: flex-start;
   padding: 8px 14px;
@@ -162,9 +204,28 @@ main {
   cursor: pointer;
 }
 
+.friend:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.friend-result {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 14px;
+}
+
 /* Decision feed — the hero */
 .feed {
   gap: 10px;
+}
+
+.feed .empty-hint {
+  padding: 4px 0;
 }
 
 .feed .row {

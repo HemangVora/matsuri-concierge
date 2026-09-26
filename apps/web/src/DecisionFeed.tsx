@@ -10,6 +10,11 @@ export default function DecisionFeed({ events }: { events: FeedEvent[] }) {
   return (
     <section className="panel feed">
       <h2>The missing layer</h2>
+      {events.length === 0 && (
+        <p className="empty-hint">
+          Every payment passes four checks: policy → Intercepta screening → your approval → the separate signer. Verdicts appear here.
+        </p>
+      )}
       {[...events].reverse().map((e) => {
         const d = e.data;
         if (e.type === 'screening') return <div key={e.id} className="row">🔎 Intercepta {short(d.address)} → score {d.toxicScore ?? 'n/a'} {d.traits.join(', ')} {d.error ?? ''}</div>;
@@ -19,10 +24,10 @@ export default function DecisionFeed({ events }: { events: FeedEvent[] }) {
             {(d.decision.lines ?? [d.decision]).map((l: any, i: number) => (
               <div key={i} className={`verdict ${color[l.action]}`}>{l.action} {l.stallName ?? short(l.to)} {l.qty !== undefined ? `×${l.qty}` : ''} {l.reasons?.join('; ')}</div>
             ))}
-            {d.approvalUrl && <a className="approve" href={d.approvalUrl} target="_blank">✋ Approve on your phone</a>}
+            {d.approvalUrl && <a className="approve" href={d.approvalUrl} target="_blank" rel="noopener noreferrer">✋ Approve on your phone</a>}
           </div>
         );
-        if (e.type === 'executed') return <div key={e.id} className="row ok">✅ Signed by the signer: {d.txHashes.map((h: string) => <a key={h} href={`https://sepolia.etherscan.io/tx/${h}`} target="_blank">{short(h)} </a>)}</div>;
+        if (e.type === 'executed') return <div key={e.id} className="row ok">✅ Signed by the signer: {d.txHashes.map((h: string) => <a key={h} href={`https://sepolia.etherscan.io/tx/${h}`} target="_blank" rel="noopener noreferrer">{short(h)} </a>)}</div>;
         if (e.type === 'signer_refused') return <div key={e.id} className="row bad">⛔ Signer refused: {d.reason}</div>;
         if (e.type === 'kanjo_paid') return <div key={e.id} className="row ok">🤝 {d.from} paid ¥{d.amountYen}</div>;
         if (e.type === 'kanjo_held') return <div key={e.id} className="row bad">⏸ {d.from}'s payment held: {d.reasons.join('; ')}</div>;
