@@ -9,17 +9,22 @@ const aoi = Wallet.createRandom();
 const mei = Wallet.createRandom();
 const settlement = '0x00000000000000000000000000000000000000d0';
 const organizer = '0x00000000000000000000000000000000000000ee';
-function deps(flagged = false, opts: { failSignerOnce?: boolean } = {}) {
+function deps(flagged = false, opts: { failSignerOnce?: boolean; failScreenOnce?: boolean } = {}) {
   const signed: string[] = [];
   let signerCalls = 0;
+  let screenCalls = 0;
   return { signed, d: {
     mb: {
       readStalls: async () => [], composeBuy: async () => ({ to: '0x0', data: '0x', value: '0' }),
       composeTransfer: async () => ({ to: '0x00000000000000000000000000000000000000c0', data: '0xfeed', value: '0' }),
       composeSettle: async () => ({ to: settlement, data: '0xabcd', value: '0' }),
     },
-    screen: async (address: string) => ({ address, ok: true, fetchedAt: 'now',
-      result: flagged ? { toxicScore: 90, traits: [{ risk: 90, name: 'known_scammer', txsCount: 1, description: 'Known scammer' }] } : { toxicScore: 1, traits: [] } }),
+    screen: async (address: string) => {
+      screenCalls++;
+      if (opts.failScreenOnce && screenCalls === 1) return { address, ok: false, error: 'timeout', fetchedAt: 'now' };
+      return { address, ok: true, fetchedAt: 'now',
+        result: flagged ? { toxicScore: 90, traits: [{ risk: 90, name: 'known_scammer', txsCount: 1, description: 'Known scammer' }] } : { toxicScore: 1, traits: [] } };
+    },
     store: openStore(':memory:'),
     policy: { maxPerStallYen: 1500, approvalThresholdYen: 1000, dailyBudgetYen: 5000,
       risk: { refuseScore: 70, askScore: 40, capScore: 15, capFraction: 0.5, hardTraits: ['known_scammer'] } },
@@ -99,6 +104,18 @@ test('a request that is already paid cannot be settled again, even with a fresh 
   assert.equal((await acceptPayment(d, b.billId, 'Aoi', await pay(d, b.billId))).status, 200);
   // A second, freshly-signed share for the same (already paid) request must still be rejected.
   assert.equal((await acceptPayment(d, b.billId, 'Aoi', await pay(d, b.billId))).status, 409);
+});
+
+test('a screening failure returns 503 without holding the request or marking the share; retry with an ok screening then succeeds', async () => {
+  const { d } = deps(false, { failScreenOnce: true });
+  const b = await createBill(d, { participants: ['You', 'Aoi'], payments: [{ name: 'You', amountYen: 2200 }], memo: 'x' });
+  const header = await pay(d, b.billId);
+  const first = await acceptPayment(d, b.billId, 'Aoi', header);
+  assert.deepEqual([first.status, (first.body as { retry?: boolean }).retry], [503, true]);
+  const bill = d.store.getBill(b.billId) as { requests: { status: string }[] };
+  assert.equal(bill.requests[0].status, 'pending');
+  const second = await acceptPayment(d, b.billId, 'Aoi', header);
+  assert.equal(second.status, 200);
 });
 
 test('a signer failure unmarks the share so a retry with the same valid share succeeds', async () => {

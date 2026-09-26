@@ -75,7 +75,14 @@ export async function acceptPayment(d: KanjoDeps, billId: string, fromName: stri
   try { signer = recoverShareSigner(d.chainId, d.deployments.settlement, share, payload.signature); } catch { /* invalid */ }
   if (signer.toLowerCase() !== payload.from.toLowerCase()) return { status: 400, body: { error: 'Share signature invalid' } };
 
-  const risk = assessRisk(await d.screen(payload.from), d.policy.risk);
+  const screening = await d.screen(payload.from);
+  // A screening call that itself failed (Intercepta unreachable, no INTERCEPTA_API_KEY, etc.) is not
+  // a verdict — it's the missing layer being unable to answer. Report it as a retryable failure and
+  // leave the request exactly as it was (still pending, no share marked) rather than holding the line
+  // on a screening result that was never actually obtained. Only a real verdict from an ok screening
+  // (REFUSE, or ASK/CAP with a score) holds the line.
+  if (!screening.ok) return { status: 503, body: { error: 'Screening unavailable, try again', retry: true } };
+  const risk = assessRisk(screening, d.policy.risk);
   if (risk.action === 'REFUSE' || risk.action === 'ASK') {
     req.status = 'held'; req.reason = risk.reasons.join('; ');
     d.store.putBill(billId, bill);
