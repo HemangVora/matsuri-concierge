@@ -75,7 +75,7 @@ The signer is the only process holding the spending key (`AGENT_PRIVATE_KEY`); e
 - Preflight `estimateGas` on every transaction before sending, so a proposal that would revert never gets partway executed (`chain.ts:preflight`).
 - Atomic claim-before-send (`state.tryClaim`) and a serialized `/sign` queue (`server.ts`'s `serialized()`), so two concurrent signs can never double-spend the daily budget.
 - Timeouts on every network hop (internal api fetch, preflight, tx wait) so a hung call fails closed instead of wedging the whole signer.
-- Any order/transfer above `approvalThresholdYen` (¥1,000) always needs the human's own EIP-712 signature — the agent cannot self-approve.
+- Any order at or above `approvalThresholdYen` (¥1,000), and every transfer, always needs the human's own EIP-712 signature — the agent cannot self-approve.
 - Hard on-chain backstop: the agent wallet's MJPY allowance to the voucher contract is set once to the daily budget (¥5,000), capping worst-case loss regardless of what the rest of the stack does.
 
 Friend agents (`services/friends`): a `payUrl` origin allowlist (`ALLOWED_PAY_ORIGINS`, api-only), `redirect: 'manual'` with every redirect refused, and the payment recipient pinned to the friend's own configured `ORGANIZER_ADDRESS` — never an address named in the 402 response body (`services/friends/src/validate.ts`, `pay.ts`).
@@ -89,18 +89,39 @@ npm install --registry=https://registry.npmjs.org   # the checked-in lockfile re
                                                       # `npm install` may fail or hang for some networks (see FEEDBACK.md)
 npm run wallets                                      # generates signer/friends wallets into their .env files if not already present
 
-cd contracts && npm run deploy:sepolia               # deploy + link on MultiBaas (needs MB_HOST, MB_ADMIN_API_KEY, DEPLOYER_KEY)
-npm run fund                                         # mint/fund test balances
+cd contracts && npm ci                               # contracts is a separate npm project, not one of the root workspaces —
+                                                      # the root `npm install` above does not install its dependencies
+npm run deploy:sepolia                               # deploy + link on MultiBaas (needs MB_HOST, MB_ADMIN_API_KEY, DEPLOYER_KEY)
+FUND_AGENT=<agent address> FUND_AOI=<aoi address> FUND_MEI=<mei address> npm run fund   # mint/fund test balances
 cd ..
 
 npm run setup:allowance -w services/signer           # agent wallet approves the voucher contract for the daily budget (on-chain cap)
 npm run setup:approve   -w services/friends          # Aoi's and Mei's wallets approve the settlement contract
 
-npm run dev:api      # services/api      — :8787
-npm run dev:signer   # services/signer   — :8788
-npm run dev:friends  # services/friends  — :8790
+npm run dev:api      # services/api      — :8787   (binds 127.0.0.1 only)
+npm run dev:signer   # services/signer   — :8788   (binds 127.0.0.1 only)
+npm run dev:friends  # services/friends  — :8790   (binds 127.0.0.1 only)
 npm run dev:web      # apps/web (vite)   — :5180
 ```
+
+Every api/signer/friends process binds `127.0.0.1` only — none of them are reachable from the LAN by
+default. Approving from a phone therefore needs either a LAN port-forward/tunnel (e.g. `ssh -R` or
+`ngrok`) to `apps/web`'s `:5180` (which then proxies `/api`, `/kanjo` and `/friends` to the loopback
+services on the same host — see `apps/web/vite.config.ts`), or, for the demo recording, simply open the
+`✋ Approve on your phone` link in a **new tab on the same machine** instead of a second device.
+
+### Values that must match across services
+
+These are independent `.env` files with no shared source of truth; a mismatch here fails silently as a
+signer refusal, a screening result the two services disagree on, or a payment nobody can complete —
+not as a clear startup error. Check these by hand after editing any `.env`:
+
+| Must be equal | Where |
+|---|---|
+| `AGENT_ADDRESS` (api) = `AGENT_ADDRESS` (signer, derived from `AGENT_PRIVATE_KEY`) = `ORGANIZER_ADDRESS` (friends) | the wallet vouchers are bought from and Kanjō payments settle to |
+| `AOI_ADDRESS` / `MEI_ADDRESS` (api) = `AOI_ADDRESS` / `MEI_ADDRESS` (friends, derived from `AOI_PRIVATE_KEY`/`MEI_PRIVATE_KEY`) | so the api's payout proposals and the friend agents' own wallets agree on who "Aoi"/"Mei" is |
+| `APPROVER_ADDRESS` (api) = `APPROVER_ADDRESS` (signer) | both must expect the same human signer, or the signer's independent re-verification of the approval will refuse a signature the api already accepted |
+| `INTERCEPTA_API_KEY` (api) = `INTERCEPTA_API_KEY` (signer) | not a correctness requirement (each key screens independently) but both must be *set* — a blank key in either service silently falls back to `ok:false`/`ASK` for every screen |
 
 ### Environment variables
 
@@ -140,6 +161,7 @@ cd contracts && npx hardhat test
 - The voucher-contract allowance set by `setup:allowance` is a one-time approval for the daily budget, not an enforced *per-day* renewal — nothing currently resets or re-caps it automatically each calendar day.
 - **All five stall `payTo` addresses in `config/stalls.json` — Kuro Yatai included — are still sequential placeholders** (`0x1111…1111` through `0x5555…5555`), not Intercepta's published test fixtures, and `KEN_PAYTO` is blank. `INTERCEPTA_API_KEY` is also still blank in both `services/api/.env` and `services/signer/.env`. As shipped today, every screening call gets `ok:false` and `packages/core/src/risk.ts` falls back to `ASK` — no REFUSE actually happens yet, and every order/transfer needs the human's approval regardless of amount. Getting the intended PAY/CAP/ASK/REFUSE spread (including the deliberate Kuro Yatai REFUSE) requires setting `INTERCEPTA_API_KEY` and swapping in real Intercepta-flagged/clean addresses first — see `docs/demo-script.md`'s "Before recording" section.
 - Kanjō is x402-*style* (HTTP 402 + our own EIP-712 signature), not the official x402 SDK/facilitator (see Non-goals in `docs/spec.md`).
+- Without `INTERCEPTA_API_KEY` (or if Intercepta is unreachable), a Kanjō payment (`services/api/src/kanjo.ts`'s `acceptPayment`) cannot obtain a verdict on the payer and returns `503 { error: 'Screening unavailable, try again', retry: true }` rather than completing — the request is left pending, not held, so the same signed share can simply be retried once screening succeeds.
 
 ## Credits
 
